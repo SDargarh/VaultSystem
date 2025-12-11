@@ -72,6 +72,41 @@ contract CurveStrategy is Ownable {
         emit Deposited(amount, lpReceived);
     }
 
+    function withdraw(uint256 amount) external onlyVault {
+        if (amount == 0) revert CurveStrategy_ZeroAmount();
+
+        // Calculate LP tokens needed
+        uint256 lpBalance = lpToken.balanceOf(address(this));
+        uint256 totalAssets = curvePool.balances(uint256(uint128(tokenIndex)));
+        uint256 totalSupply = lpToken.totalSupply();
+
+        uint256 lpToWithdraw = (amount * totalSupply) / totalAssets;
+        if (lpToWithdraw > lpBalance) lpToWithdraw = lpBalance;
+
+        // Calculate minimum received with 0.5% slippage
+        uint256 minReceived = (amount * 9950) / 10000;
+
+        // Remove liquidity in single asset
+        uint256 received = curvePool.remove_liquidity_one_coin(
+            lpToWithdraw,
+            tokenIndex,
+            minReceived
+        );
+
+        asset.safeTransfer(vault, received);
+
+        emit Withdrawn(lpToWithdraw, received);
+    }
+
+    function harvest() external onlyVault {
+        // Curve fees are automatically included in LP token value
+        // No explicit harvest needed, but we emit event for tracking
+        emit Harvested(0);
+    }
+
+    /**
+     * @notice Get total balance in underlying asset terms
+     */
     function balanceOf(address account) external view returns (uint256) {
         if (account != vault) return 0;
 
@@ -85,5 +120,14 @@ contract CurveStrategy is Ownable {
         return (lpBalance * totalAssets) / totalSupply;
     }
 
+    function emergencyWithdraw() external onlyOwner {
+        uint256 lpBalance = lpToken.balanceOf(address(this));
+        if (lpBalance > 0) {
+            uint256 minReceived = 0; // Accept any amount in emergency
+            curvePool.remove_liquidity_one_coin(lpBalance, tokenIndex, minReceived);
 
+            uint256 assetBalance = asset.balanceOf(address(this));
+            asset.safeTransfer(owner(), assetBalance);
+        }
+    }
 }

@@ -8,7 +8,10 @@ import "src/interfaces/IAaveLendingPool.sol";
 
 import "forge-std/console2.sol";
 
-
+/**
+ * @title AaveStrategy
+ * @notice Strategy that supplies assets to Aave lending pool
+ */
 contract AaveStrategy is Ownable {
     using SafeERC20 for IERC20;
 
@@ -18,6 +21,8 @@ contract AaveStrategy is Ownable {
     address public vault;
 
     event Deposited(uint256 amount);
+    event Withdrawn(uint256 amount);
+    event Harvested(uint256 profit);
     event VaultSet(address indexed vault);
 
     error AaveStrategy_OnlyVault();
@@ -57,12 +62,32 @@ contract AaveStrategy is Ownable {
         emit Deposited(amount);
     }
 
-    /**
-     * @notice Get total balance including accrued interest
-     */
-    function balanceOf(address account) external view returns (uint256) {
-        if (account != vault) return 0;
-        return aToken.balanceOf(address(this));
+    function withdraw(uint256 amount) external onlyVault {
+        if (amount == 0) revert AaveStrategy_ZeroAmount();
+
+        uint256 withdrawn = aavePool.withdraw(address(asset), amount, vault);
+
+        emit Withdrawn(withdrawn);
     }
 
+    function harvest() external onlyVault {
+        // Aave automatically compounds interest into aToken balance
+        // No action needed, interest is already reflected in balanceOf()
+        emit Harvested(0);
+    }
+
+
+    // Get total balance including accrued interest
+    function balanceOf(address account) external view returns (uint256) {
+        if (account != vault) return 0;
+                
+        return aavePool.getUnderlyingBalance(address(this));
+    }
+
+    // function emergencyWithdraw() external onlyOwner {
+    //     uint256 balance = aToken.balanceOf(address(this));
+    //     if (balance > 0) {
+    //         aavePool.withdraw(address(asset), balance, owner());
+    //     }
+    // }
 }

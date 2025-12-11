@@ -8,6 +8,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "src/interfaces/IStrategy.sol";
 
+import "forge-std/console2.sol";
+
 contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -124,6 +126,39 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
         _deployCapital();
     }
 
+    function withdraw(uint256 assets, address receiver, address owner)
+        public
+        override
+        nonReentrant
+        returns (uint256 shares)
+    {
+        uint256 idle = IERC20(asset()).balanceOf(address(this));
+        if (assets > idle) {
+            _withdrawFromStrategies(assets - idle);
+        }
+
+        shares = super.withdraw(assets, receiver, owner);
+    }
+
+    function redeem(uint256 shares, address receiver, address owner)
+        public
+        override
+        nonReentrant
+        returns (uint256 assets)
+    {
+        // Calculate assets needed
+        assets = previewRedeem(shares);
+
+        console2.log("assets = ", assets);
+        
+        uint256 idle = IERC20(asset()).balanceOf(address(this));
+        
+        if (assets > idle) {
+            _withdrawFromStrategies(assets - idle);
+        }
+        
+        assets = super.redeem(shares, receiver, owner);
+    }
 
     // ============ Strategy Management ============
 
@@ -143,4 +178,51 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
         }
     }
 
+    function _withdrawFromStrategies(uint256 amount) internal {
+        uint256 stratABalance = strategyA.balanceOf(address(this));
+        uint256 stratBBalance = strategyB.balanceOf(address(this));
+        uint256 totalDeployed = stratABalance + stratBBalance;
+
+        if (totalDeployed == 0) revert MainVault_InsufficientBalance();
+
+        // Withdraw proportionally
+        if (stratABalance > 0) {
+            uint256 withdrawA = (amount * stratABalance) / totalDeployed;
+            withdrawA = withdrawA > stratABalance ? stratABalance : withdrawA;
+            if (withdrawA > 0) {
+                strategyA.withdraw(withdrawA);
+            }
+        }
+
+        if (stratBBalance > 0) {
+            uint256 withdrawB = (amount * stratBBalance) / totalDeployed;
+            withdrawB = withdrawB > stratBBalance ? stratBBalance : withdrawB;
+            if (withdrawB > 0) {
+                strategyB.withdraw(withdrawB);
+            }
+        }
+
+        // If still not enough, try to get remaining from other strategy
+        uint256 idle = IERC20(asset()).balanceOf(address(this));
+        if (idle < amount) {
+            uint256 remaining = amount - idle;
+
+            // Try strategy A first
+            uint256 stratAAfter = strategyA.balanceOf(address(this));
+            if (stratAAfter >= remaining) {
+                strategyA.withdraw(remaining);
+            } else if (stratAAfter > 0) {
+                strategyA.withdraw(stratAAfter);
+                remaining -= stratAAfter;
+
+                // Then try strategy B
+                uint256 stratBAfter = strategyB.balanceOf(address(this));
+                if (stratBAfter >= remaining) {
+                    strategyB.withdraw(remaining);
+                } else if (stratBAfter > 0) {
+                    strategyB.withdraw(stratBAfter);
+                }
+            }
+        }
+    }
 }

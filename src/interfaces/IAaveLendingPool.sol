@@ -13,4 +13,6 @@ interface IAaveLendingPool {
         uint256 amount,
         address to
     ) external returns (uint256);
+
+    function getUnderlyingBalance(address account) external view returns (uint256);
 }
