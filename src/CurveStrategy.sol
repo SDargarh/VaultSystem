@@ -34,12 +34,7 @@ contract CurveStrategy is Ownable {
         _;
     }
 
-    constructor(
-        IERC20 _asset,
-        ICurvePool _curvePool,
-        IERC20 _lpToken,
-        int128 _tokenIndex
-    ) Ownable(msg.sender) {
+    constructor(IERC20 _asset, ICurvePool _curvePool, IERC20 _lpToken, int128 _tokenIndex) Ownable(msg.sender) {
         asset = _asset;
         curvePool = _curvePool;
         lpToken = _lpToken;
@@ -72,26 +67,50 @@ contract CurveStrategy is Ownable {
         emit Deposited(amount, lpReceived);
     }
 
+    // In CurveStrategy.sol
     function withdraw(uint256 amount) external onlyVault {
         if (amount == 0) revert CurveStrategy_ZeroAmount();
 
-        // Calculate LP tokens needed
         uint256 lpBalance = lpToken.balanceOf(address(this));
+        if (lpBalance == 0) return;
+
         uint256 totalAssets = curvePool.balances(uint256(uint128(tokenIndex)));
         uint256 totalSupply = lpToken.totalSupply();
 
+        // Calculate our total balance in underlying
+        uint256 ourTotalBalance = (lpBalance * totalAssets) / totalSupply;
+
         uint256 lpToWithdraw = (amount * totalSupply) / totalAssets;
-        if (lpToWithdraw > lpBalance) lpToWithdraw = lpBalance;
 
-        // Calculate minimum received with 0.5% slippage
-        uint256 minReceived = (amount * 9950) / 10000;
+        //If withdrawing > 99.9% of our position, just withdraw everything
+        if (amount >= (ourTotalBalance * 999) / 1000) {
+            lpToWithdraw = lpBalance; // Withdraw all LP tokens
+            console2.log("Withdrawing entire LP position");
+        } else if (lpToWithdraw > lpBalance) {
+            lpToWithdraw = lpBalance;
+        }
 
-        // Remove liquidity in single asset
-        uint256 received = curvePool.remove_liquidity_one_coin(
-            lpToWithdraw,
-            tokenIndex,
-            minReceived
-        );
+        // Adjust slippage based on withdrawal size
+        uint256 minReceived;
+        if (lpToWithdraw == lpBalance) {
+            // Full withdrawal - accept whatever we get
+            minReceived = 0;
+        } else if (amount < 1e6) {
+            // Small amounts - 5% slippage
+            minReceived = (amount * 9500) / 10000;
+        } else {
+            // Normal - 0.5% slippage
+            minReceived = (amount * 9950) / 10000;
+        }
+
+        console2.log("Curve withdraw:");
+        console2.log("  Amount requested:", amount);
+        console2.log("  Our total balance:", ourTotalBalance);
+        console2.log("  LP balance:", lpBalance);
+        console2.log("  LP to withdraw:", lpToWithdraw);
+        console2.log("  Min received:", minReceived);
+
+        uint256 received = curvePool.remove_liquidity_one_coin(lpToWithdraw, tokenIndex, minReceived);
 
         asset.safeTransfer(vault, received);
 

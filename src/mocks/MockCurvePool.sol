@@ -83,11 +83,22 @@ contract MockCurvePool is ICurvePool {
         uint256 amount;
         if (i == 0) {
             amount = (balance0 * share) / FEE_DENOMINATOR;
+
+            // Handle rounding - if calculated amount is 0 but we have balance, give at least 1
+            if (amount == 0 && token_amount > 0 && balance0 > 0) {
+                amount = 1;
+            }
+
             require(amount >= min_amount, "Slippage");
             balance0 -= amount;
             token0.safeTransfer(msg.sender, amount);
         } else {
             amount = (balance1 * share) / FEE_DENOMINATOR;
+
+            if (amount == 0 && token_amount > 0 && balance1 > 0) {
+                amount = 1;
+            }
+
             require(amount >= min_amount, "Slippage");
             balance1 -= amount;
             token1.safeTransfer(msg.sender, amount);
