@@ -80,14 +80,14 @@ contract AaveStrategy is Ownable {
     // Get total balance including accrued interest
     function balanceOf(address account) external view returns (uint256) {
         if (account != vault) return 0;
-                
+
         return aavePool.getUnderlyingBalance(address(this));
     }
 
-    // function emergencyWithdraw() external onlyOwner {
-    //     uint256 balance = aToken.balanceOf(address(this));
-    //     if (balance > 0) {
-    //         aavePool.withdraw(address(asset), balance, owner());
-    //     }
-    // }
+    function emergencyWithdraw() external onlyOwner {
+        uint256 balance = aToken.balanceOf(address(this));
+        if (balance > 0) {
+            aavePool.withdraw(address(asset), balance, owner());
+        }
+    }
 }

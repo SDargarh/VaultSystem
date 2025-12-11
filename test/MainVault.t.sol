@@ -49,11 +49,21 @@ contract MainVaultTest is Test {
         curveStrategy = new CurveStrategy(usdc, curvePool, IERC20(address(curvePool.lpToken())), 0);
 
         //Deploy Vault with strategy addresses
-        vault = new MainVault(usdc, "Main USDC Vault", "mvUSDC", IStrategy(address(aaveStrategy)), IStrategy(address(curveStrategy)), treasury);
+        vault = new MainVault(
+            usdc,
+            "Main USDC Vault",
+            "mvUSDC",
+            IStrategy(address(aaveStrategy)),
+            IStrategy(address(curveStrategy)),
+            treasury
+        );
         console2.log("Vault deployed at:", address(vault));
+        // usdc.mint(address(vault), 1000);
 
         aaveStrategy.setVault(address(vault));
         curveStrategy.setVault(address(vault));
+
+        vault.grantRole(vault.STRATEGIST_ROLE(), strategist);
 
         //setup user with USDC
         usdc.mint(alice, INITIAL_BALANCE);
@@ -84,74 +94,120 @@ contract MainVaultTest is Test {
         assertGt(shares, 0, "No shares minted");
     }
 
-    function testMultipleDeposits() public {
+    function test_MultipleDeposits() public {
         // Alice deposits
         vm.prank(alice);
         uint256 aliceShares = vault.deposit(DEPOSIT_AMOUNT, alice);
-        
+
         // Bob deposits same amount
         vm.prank(bob);
         uint256 bobShares = vault.deposit(DEPOSIT_AMOUNT, bob);
-        
+
         // Shares should be equal for equal deposits
         assertEq(aliceShares, bobShares, "Unequal shares for equal deposits");
         assertEq(vault.totalAssets(), DEPOSIT_AMOUNT * 2, "Incorrect total");
     }
 
-    function testWithdraw() public {
+    function test_Withdraw() public {
         vm.startPrank(alice);
-        
+
         vault.deposit(DEPOSIT_AMOUNT, alice);
-        
+
         uint256 balanceBefore = usdc.balanceOf(alice);
         vault.withdraw(DEPOSIT_AMOUNT / 2, alice, alice);
         uint256 balanceAfter = usdc.balanceOf(alice);
-        
+
         assertEq(balanceAfter - balanceBefore, DEPOSIT_AMOUNT / 2, "Incorrect withdrawal");
-        
+
         vm.stopPrank();
     }
 
-    function testRedeem() public {
+    function test_Redeem() public {
         vm.startPrank(alice);
-        
+
         uint256 shares = vault.deposit(DEPOSIT_AMOUNT, alice);
-        
+
         uint256 balanceBefore = usdc.balanceOf(alice);
         uint256 assets = vault.redeem(shares / 2, alice, alice);
         uint256 balanceAfter = usdc.balanceOf(alice);
-        
+
         assertEq(balanceAfter - balanceBefore, assets, "Assets mismatch");
         assertEq(vault.balanceOf(alice), shares / 2, "Shares not burned");
-        
+
         vm.stopPrank();
     }
 
     function test_FullWithdrawal() public {
         vm.startPrank(alice);
-        
+
         vault.deposit(DEPOSIT_AMOUNT, alice); // 100k
-        
+
         vm.warp(block.timestamp + 10 days);
-        
+
         // This should trigger interest accrual
         aavePool.accrueInterest();
-        
+
         uint256 shares = vault.balanceOf(alice);
         uint256 balanceBefore = usdc.balanceOf(alice);
-        
+
         console2.log("Before withdrawal:");
         console2.log("  Total assets:", vault.totalAssets());
         console2.log("  Expected:", vault.previewRedeem(shares));
-        
+
         vault.redeem(shares, alice, alice);
-        
+
         uint256 balanceAfter = usdc.balanceOf(alice);
         console2.log("Withdrawn:", balanceAfter - balanceBefore);
-        
+
         // Should be > 100k now!
         assertGt(balanceAfter - balanceBefore, DEPOSIT_AMOUNT);
-        
+
         vm.stopPrank();
+    }
+
+
+    function test_Rebalance() public {
+        vm.prank(alice);
+        vault.deposit(DEPOSIT_AMOUNT, alice);
+        
+        // Change allocation to 70/30
+        vm.prank(strategist);
+        vault.setAllocation(7000, 3000);
+        
+        // Rebalance
+        vm.prank(strategist);
+        vault.rebalance();
+        
+        (uint256 aaveBalance, uint256 curveBalance) = vault.getStrategyBalances();
+        uint256 total = vault.totalAssets();
+        
+        // Check new allocation (with some tolerance for rounding)
+        assertApproxEqRel(aaveBalance, (total * 7000) / 10000, 0.02e18, "Incorrect Aave allocation");
+        assertApproxEqRel(curveBalance, (total * 3000) / 10000, 0.02e18, "Incorrect Curve allocation");
+    }
+
+    // ============ Profit Distribution Tests ============
+    
+    function test_ProfitDistribution() public {
+        // Alice deposits
+        vm.prank(alice);
+        uint256 aliceShares = vault.deposit(DEPOSIT_AMOUNT, alice);
+        
+        // Simulate profit
+        vm.warp(block.timestamp + 365 days);
+        aavePool.accrueInterest();
+        
+        // Bob deposits after profit
+        vm.prank(bob);
+        uint256 bobShares = vault.deposit(DEPOSIT_AMOUNT, bob);
+        
+        // Bob should get fewer shares for same assets (profit increased share price)
+        assertLt(bobShares, aliceShares, "Bob should get fewer shares");
+        
+        // Alice's shares should be worth more than Bob's
+        uint256 aliceAssets = vault.convertToAssets(aliceShares);
+        uint256 bobAssets = vault.convertToAssets(bobShares);
+        
+        assertGt(aliceAssets, bobAssets, "Alice should have more value");
     }
 }
