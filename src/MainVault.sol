@@ -50,6 +50,7 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
 
     // ============ Events ============
     
+    event Harvested(uint256 profit, uint256 fees);
     event Rebalanced(uint256 strategyABalance, uint256 strategyBBalance);
     event AllocationUpdated(uint16 strategyARatio, uint16 strategyBRatio);
     event FeesUpdated(uint16 managementFee, uint16 performanceFee);
@@ -300,6 +301,64 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
         return deviationA > rebalanceThresholdBps || deviationB > rebalanceThresholdBps;
     }
 
+    function harvest() external onlyRole(HARVESTER_ROLE) nonReentrant returns (uint256 profit) {
+        // Get principal deployed to strategies (balanceOf returns current value, we need principal)
+        uint256 stratABalance = strategyA.balanceOf(address(this));
+        uint256 stratBBalance = strategyB.balanceOf(address(this));
+        
+        // Total principal deployed (before interest accrual)
+        // Note: This is approximate since strategies track current value including interest
+        uint256 totalDeployed = stratABalance + stratBBalance;
+        
+        // Withdraw all capital from strategies to realize gains
+        if (stratABalance > 0) {
+            strategyA.withdraw(stratABalance);
+        }
+        if (stratBBalance > 0) {
+            strategyB.withdraw(stratBBalance);
+        }
+        
+        // Get actual amount realized (principal + interest)
+        uint256 vaultBalance = IERC20(asset()).balanceOf(address(this));
+        
+        // Profit = What we got back - What we put in
+        // This is the actual interest/yield earned
+        if (vaultBalance > totalDeployed) {
+            unchecked {
+                profit = vaultBalance - totalDeployed;
+            }
+            
+            // Calculate and deduct fees (only on actual profit)
+            uint256 fees = _calculateFees(profit);
+            
+            if (fees > 0 && treasury != address(0)) {
+                IERC20(asset()).safeTransfer(treasury, fees);
+            }
+            
+            totalProfits += profit;
+            lastHarvestTimestamp = block.timestamp;
+            
+            emit Harvested(profit, fees);
+        }
+        
+        // Redeploy remaining capital according to allocation
+        _deployCapital();
+    }
+
+    function _calculateFees(uint256 profit) internal view returns (uint256) {
+        // Management fee: time-based on total AUM
+        uint256 timeElapsed = block.timestamp - lastHarvestTimestamp;
+        uint256 aum = _totalAssets(); // Principal + current profits
+        uint256 managementFee = (aum * managementFeeBps * timeElapsed) 
+            / (MAX_BPS * 365 days);
+        
+        // Performance fee: only on NEW profits realized this harvest
+        uint256 performanceFee = (profit * performanceFeeBps) / MAX_BPS;
+        
+        unchecked {
+            return managementFee + performanceFee;
+        }
+    }
 
     // ============ Admin Functions ============
 

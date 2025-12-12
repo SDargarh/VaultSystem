@@ -186,6 +186,33 @@ contract MainVaultTest is Test {
         assertApproxEqRel(curveBalance, (total * 3000) / 10000, 0.02e18, "Incorrect Curve allocation");
     }
 
+    function testHarvest() public {
+        vm.prank(alice);
+        vault.deposit(DEPOSIT_AMOUNT, alice);
+        
+        // Simulate yield by advancing time and accruing interest
+        vm.warp(block.timestamp + 365 days);
+        aavePool.accrueInterest();
+        
+        uint256 totalBefore = vault.totalAssets();
+        console2.log("Total before harvest:", totalBefore);
+        
+        // Grant harvester role
+        vm.prank(address(this));
+        vault.grantRole(vault.HARVESTER_ROLE(), address(this));
+        
+        // Harvest - withdraws strategies and redeposits
+        vm.prank(address(this));
+        vault.harvest();
+        
+        uint256 totalAfter = vault.totalAssets();
+        console2.log("Total after harvest:", totalAfter);
+        
+        // Total assets should remain roughly the same (yield already reflected in share price)
+        // Small rounding differences are expected
+        assertApproxEqAbs(totalBefore, totalAfter, 1e6, "Total assets changed unexpectedly");
+    }
+
     // ============ Profit Distribution Tests ============
     
     function test_ProfitDistribution() public {

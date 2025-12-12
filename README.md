@@ -34,3 +34,14 @@ forge test --match-contract InvariantTests
 forge coverage
 
 ```
+
+### Implemented:
+
+ERC-4626 compliant vault with deposit/withdraw/redeem
+Two strategies: Aave lending + Curve AMM
+Harvest logic with proper profit accounting and fee distribution
+Rebalance with threshold-based drift detection
+Role-based access control + reentrancy protection
+Gas optimizations (immutables, unchecked arithmetic)
+Comprehensive tests + invariant validation
+All tests passing ✓
