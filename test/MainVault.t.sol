@@ -210,4 +210,62 @@ contract MainVaultTest is Test {
         
         assertGt(aliceAssets, bobAssets, "Alice should have more value");
     }
+
+    // ============ Edge Case Tests ============
+    
+    function test_ZeroDeposit() public {
+        vm.prank(alice);
+        vm.expectRevert();
+        vault.deposit(0, alice);
+    }
+    
+    function test_ZeroWithdrawal() public {
+        vm.startPrank(alice);
+        
+        vault.deposit(DEPOSIT_AMOUNT, alice);
+        
+        vm.expectRevert();
+        vault.withdraw(0, alice, alice);
+        
+        vm.stopPrank();
+    }
+    
+    function test_WithdrawMoreThanBalance() public {
+        vm.startPrank(alice);
+        
+        vault.deposit(DEPOSIT_AMOUNT, alice);
+        
+        vm.expectRevert();
+        vault.withdraw(DEPOSIT_AMOUNT * 2, alice, alice);
+        
+        vm.stopPrank();
+    }
+
+    // ============ Gas Optimization Tests ============
+    
+    function test_GasOptimizedDeposit() public {
+        vm.prank(alice);
+        
+        uint256 gasBefore = gasleft();
+        vault.deposit(DEPOSIT_AMOUNT, alice);
+        uint256 gasUsed = gasBefore - gasleft();
+        
+        // Should use reasonable gas (< 500k for initial deposit)
+        assertLt(gasUsed, 500_000, "Deposit uses too much gas");
+    }
+    
+    function test_GasOptimizedWithdraw() public {
+        vm.startPrank(alice);
+        
+        vault.deposit(DEPOSIT_AMOUNT, alice);
+        
+        uint256 gasBefore = gasleft();
+        vault.withdraw(DEPOSIT_AMOUNT / 2, alice, alice);
+        uint256 gasUsed = gasBefore - gasleft();
+        
+        // Withdrawal should be reasonably gas efficient
+        assertLt(gasUsed, 300_000, "Withdrawal uses too much gas");
+        
+        vm.stopPrank();
+    }
 }

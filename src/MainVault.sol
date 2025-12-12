@@ -46,6 +46,7 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
     error MainVault_InvalidFee();
     error MainVault_InsufficientBalance();
     error MainVault_StrategyFailed();
+    error MainVault_InvalidWithdrawAmount();
 
     // ============ Events ============
     
@@ -135,6 +136,7 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
         nonReentrant
         returns (uint256 shares)
     {
+        if(assets <= 0) revert MainVault_InvalidWithdrawAmount();
         uint256 idle = IERC20(asset()).balanceOf(address(this));
         if (assets > idle) {
             _withdrawFromStrategies(assets - idle);

@@ -112,6 +112,8 @@ contract CurveStrategy is Ownable {
 
         uint256 received = curvePool.remove_liquidity_one_coin(lpToWithdraw, tokenIndex, minReceived);
 
+        if (received < minReceived) revert CurveStrategy_SlippageTooHigh();
+
         asset.safeTransfer(vault, received);
 
         emit Withdrawn(lpToWithdraw, received);
