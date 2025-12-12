@@ -39,7 +39,7 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
 
     // ============ Error Codes ============
 
-    error MainVault_zeroAddress();
+    error MainVault_ZeroAddress();
     error MainVault_InvalidAssetAmount();
     error MainVault_ZeroSharesExpected();
     error MainVault_InvalidRatio();
@@ -53,6 +53,7 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
     event Rebalanced(uint256 strategyABalance, uint256 strategyBBalance);
     event AllocationUpdated(uint16 strategyARatio, uint16 strategyBRatio);
     event FeesUpdated(uint16 managementFee, uint16 performanceFee);
+    event TreasuryUpdated(address indexed newTreasury);
 
     constructor(
         IERC20 _asset,
@@ -63,7 +64,7 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
         address _treasury
     ) ERC4626(_asset) ERC20(_name, _symbol) {
         if (address(_strategyA) == address(0) || address(_strategyB) == address(0) || _treasury == address(0)) {
-            revert MainVault_zeroAddress();
+            revert MainVault_ZeroAddress();
         }
 
         // Set up roles
@@ -109,7 +110,7 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
 
     function deposit(uint256 assets, address receiver) public override nonReentrant returns (uint256 shares) {
         if (receiver == address(0)) {
-            revert MainVault_zeroAddress();
+            revert MainVault_ZeroAddress();
         }
 
         if (assets <= 0) {
@@ -333,6 +334,26 @@ contract MainVault is ERC4626, AccessControl, ReentrancyGuard {
     {
         if (_threshold > 5000) revert MainVault_InvalidFee(); // Max 50%
         rebalanceThresholdBps = _threshold;
+    }
+
+    function setTreasury(address _treasury) 
+        external 
+        onlyRole(DEFAULT_ADMIN_ROLE) 
+    {
+        if (_treasury == address(0)) revert MainVault_ZeroAddress();
+        treasury = _treasury;
+        emit TreasuryUpdated(_treasury);
+    }
+
+    function emergencyWithdraw() 
+        external 
+        onlyRole(DEFAULT_ADMIN_ROLE) 
+    {
+        uint256 balA = strategyA.balanceOf(address(this));
+        uint256 balB = strategyB.balanceOf(address(this));
+        
+        if (balA > 0) strategyA.withdraw(balA);
+        if (balB > 0) strategyB.withdraw(balB);
     }
 
 
